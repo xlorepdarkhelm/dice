@@ -206,20 +206,18 @@ class DiceAdder(RollableSequence):
         if Die in mappings:
             die_items = mappings.pop(Die)
 
-            items.update({
-                dtype: items.get(dtype, 0) + count
-                for dtype, count in (
-                    (
-                        set_item,
-                        len([
-                            item
-                            for item in die_items
-                            if hash(item) == hash(set_item)
-                        ])
-                    )
-                    for set_item in set(die_items)
+            for dtype, count in (
+                (
+                    set_item,
+                    len([
+                        item
+                        for item in die_items
+                        if hash(item) == hash(set_item)
+                    ])
                 )
-            })
+                for set_item in set(die_items)
+            ):
+                items[dtype] = items.get(dtype, 0) + count
 
         merged_adders.extend(
             (Dice(count, die) if count > 1 else die)
