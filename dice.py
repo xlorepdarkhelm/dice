@@ -81,6 +81,20 @@ class Rollable(collections.abc.Hashable, collections.abc.Callable, metaclass=abc
     def __radd__(self, other):
         return DiceAdder(other, self)
 
+class RollableSequence(collections.abc.Sequence, Rollable):
+    def __init__(self, group=[]):
+        self.__group = tuple(group)
+
+    @property
+    def _group(self):
+        return self.__group
+
+    def __getitem__(self, index):
+        self._group[index]
+
+    def __len__(self):
+        return len(self._group)
+
 class Die(Rollable, HasConvention):
     def __init__(self, sides, convention=standard_die):
         sides = int(sides)
@@ -108,20 +122,6 @@ class Die(Rollable, HasConvention):
 
     def __repr__(self):
         return ''.join(['Die(', repr(self.sides), ')'])
-
-class RollableSequence(collections.abc.Sequence, Rollable):
-    def __init__(self, group=[]):
-        self.__group = tuple(group)
-
-    @property
-    def _group(self):
-        return self.__group
-
-    def __getitem__(self, index):
-        self._group[index]
-
-    def __len__(self):
-        return len(self._group)
 
 class Dice(RollableSequence, HasConvention):
     def __init__(self, num, rollable, convention=standard_dice):
@@ -163,7 +163,6 @@ class Dice(RollableSequence, HasConvention):
 
 class DiceAdder(RollableSequence):
     def __new__(cls, *adders, scalar=0):
-
         mappings = {
             type_: [item for item in adders if type(item) is type_]
             for type_ in {type(item) for item in adders}
@@ -272,7 +271,7 @@ class DiceAdder(RollableSequence):
         return sum(item() for item in self._group) + self.scalar
 
     def copy(self):
-        return DiceAdder(self.scalar, *self._group)
+        return DiceAdder(*self._group, scalar=self.scalar)
 
     def __hash__(self):
         return hash((type(self), self.scalar) + self._group)
@@ -292,3 +291,50 @@ class DiceAdder(RollableSequence):
             ret = ', '.join([ret, repr(self.scalar)])
 
         return ''.join(['DiceAdder(', ret, ')'])
+
+
+class DiceMultiplier(RollableSequence):
+    def __init__(self, *multipliers, scalar=1):
+        pass
+
+    @property
+    def scalar(self):
+        return self.__scalar
+
+    def _roll(self):
+        return functools.reduce(
+            operator.mul,
+            (
+                item()
+                for item in self._group
+            ),
+            1
+        ) * self.scalar
+
+    def copy(self):
+        return DiceMultiplier(*self._group, scalar=self.scalar)
+
+    def __hash__(self):
+        return hash((type(self), self.scalar) + self._group)
+
+    def __str__(self):
+        if self.scalar == 0:
+            ret = str(self.scalar)
+        else:
+            ret = ' * '.join(str(item) for item in self._group)
+            if self.scalar not in {-1, 0, 1}:
+                ret = ' * '.join([ret, str(self.scalar)])
+            elif self.scalar == -1:
+                ret = ''.join(['-', ret])
+
+        return ret
+
+    def __repr__(self):
+        if self.scalar == 0:
+            ret = repr(self.scalar)
+        else:
+            ret = ', '.join(repr(item) for item in self._group)
+            if self.scalar not in {0, 1}:
+                ret = ', '.join([ret, repr(self.scalar)])
+
+        return ''.join(['DiceMultiplier(', ret, ')'])
