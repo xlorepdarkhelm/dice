@@ -25,7 +25,11 @@ class HasConvention:
 
 
 @functools.total_ordering
-class Rollable(collections.abc.Hashable, collections.abc.Callable, metaclass=abc.ABCMeta):
+class Rollable(
+    collections.abc.Hashable,
+    collections.abc.Callable,
+    metaclass=abc.ABCMeta
+):
     @property
     def last(self):
         try:
@@ -39,7 +43,10 @@ class Rollable(collections.abc.Hashable, collections.abc.Callable, metaclass=abc
         return self.last
 
     def __int__(self):
-        return self.last
+        return int(self.last)
+
+    def __index__(self):
+        return int(self.last)
 
     def __float__(self):
         return float(self.last)
@@ -101,6 +108,9 @@ class Rollable(collections.abc.Hashable, collections.abc.Callable, metaclass=abc
 
     def __invert__(self):
         return DiceMultiplier(self, scalar=-1)
+
+    def __abs__(self):
+        return self
 
 class RollableSequence(collections.abc.Sequence, Rollable):
     def __init__(self, group=[]):
@@ -356,10 +366,21 @@ class DiceMultiplier(RollableSequence):
                 )
                 for multiplier in dice_multipliers
             ])
-            multiplier_items = tuple(item for group in multiplier_items for item in group)
+            multiplier_items = tuple(
+                item
+                for group in multiplier_items
+                for item in group
+            )
             scalar *= functools.reduce(operator.mul, scalars)
             for type_, items in (
-                (type_, [item for item in multiplier_items if type(item) is type_])
+                (
+                    type_,
+                    [
+                        item
+                        for item in multiplier_items
+                        if type(item) is type_
+                    ]
+                )
                 for type_ in {type(item) for item in multiplier_items}
             ):
                 if type_ in mappings:
@@ -402,7 +423,8 @@ class DiceMultiplier(RollableSequence):
                     item
                     for item in scalars
                     if item is not None
-                )
+                ),
+                1
             )
 
         if scalar == 1 and len(merged_multipliers) == 1:
@@ -463,3 +485,6 @@ class DiceMultiplier(RollableSequence):
                 ret = ', '.join([ret, repr(self.scalar)])
 
         return ''.join(['DiceMultiplier(', ret, ')'])
+
+    def __abs__(self):
+        return DiceMultiplier(*self._group, scalar=abs(self.scalar))
