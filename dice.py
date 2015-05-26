@@ -177,6 +177,12 @@ class Rollable(
 
     def __rrshift__(self, other):
         return DiceBitwiseShift(other, self)
+        
+    def __mod__(self, other):
+        return DiceModulus(self, other)
+        
+    def __rmod__(self, other):
+        return DiceModulus(other, self)
 
 class RollableSequence(collections.abc.Sequence, Rollable):
     def __init__(self, group=[]):
@@ -599,13 +605,6 @@ def DiceDivider(Rollable):
     def __init__(self, numerator, divisor):
         pass
 
-    def __float__(self):
-        if self._truediv:
-            return float(self.numerator) / float(self.denominator)
-
-        else:
-            return int(float(self.numerator) // float(self.denominator))
-
     @property
     def numerator(self):
         return self.__numerator
@@ -616,16 +615,20 @@ def DiceDivider(Rollable):
 
     def _roll(self):
         try:
-            self.numerator()
+            numerator = self.numerator()
         except TypeError:
-            pass
+            numerator = self.numerator
 
         try:
-            self.denominator()
+            denominator = self.denominator()
         except TypeError:
-            pass
+            denominator = self.denominator
 
-        return float(self)
+        if self._truediv:
+            return numerator / denominator
+
+        else:
+            return numerator // denominator
 
     def copy(self):
         try:
@@ -638,13 +641,13 @@ def DiceDivider(Rollable):
         except AttributeError:
             denominator = self.denominator
 
-        return DiceDivider(numerator, denominator)
+        return DiceDivider(numerator, denominator, truediv=self._truediv)
 
     def _truediv(self):
         return self.__truediv
 
     def __hash__(self):
-        return hash(type(self), self.numerator, self.denominator)
+        return hash(type(self), self.numerator, self.denominator, self._truediv)
 
     def __str__(self):
         return (' / ' if self._truediv else ' // ').join([
@@ -1422,5 +1425,77 @@ class DiceRound(Rollable):
             repr(self._element),
             ', ndigits=',
             repr(self._ndigits),
+            ')'
+        ])
+
+
+def DiceModulus(Rollable):
+    def __new__(cls, numerator, denominator):
+        if not denominator:
+            raise ZeroDivisionError
+
+        ret = super().__new__(cls)
+        ret.__numerator = numerator
+        ret.__denominator = denominator
+        return ret
+
+    def __init__(self, numerator, denominator):
+        pass
+
+    @property
+    def numerator(self):
+        return self.__numerator
+
+    @property
+    def _denominator(self):
+        return self.__denominator
+
+    def _roll(self):
+        try:
+            numerator = self._numerator()
+        except TypeError:
+            numerator = self._numerator
+
+        try:
+            denominator = self._denominator()
+        except TypeError:
+            denominator = self._denominator
+
+        return numerator % denominator
+
+    def copy(self):
+        try:
+            numerator = self.numerator.copy()
+        except AttributeError:
+            numerator = self.numerator
+
+        try:
+            denominator = self.denominator.copy()
+        except AttributeError:
+            denominator = self.denominator
+
+        return DiceModulus(numerator, denominator)
+
+    def __hash__(self):
+        return hash(type(self), self.numerator, self.denominator)
+
+    def __str__(self):
+        return ' % '.join([
+            ''.join(['(', str(self.numerator), ')'])
+            if isinstance(self.numerator, CollectedRollableSequence)
+            else str(self.numerator),
+
+            ''.join(['(', str(self.denominator), ')'])
+            if isinstance(self.denominator, CollectedRollableSequence)
+            else str(self.denominator)
+        ])
+
+    def __repr__(self):
+        return ''.join([
+            'DiceModulus(',
+            ', '.join([
+                repr(self.numerator),
+                repr(self.denominator)
+            ]),
             ')'
         ])
