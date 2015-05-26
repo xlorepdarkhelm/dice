@@ -81,6 +81,27 @@ class Rollable(collections.abc.Hashable, collections.abc.Callable, metaclass=abc
     def __radd__(self, other):
         return DiceAdder(other, self)
 
+    def __sub__(self, other):
+        return operator.add(self, -other)
+
+    def __rsub__(self, other):
+        return operator.add(-self, other)
+
+    def __mul__(self, other):
+        return DiceMultiplier(self, other)
+
+    def __rmul__(self, other):
+        return DiceMultiplier(other, self)
+
+    def __pos__(self):
+        return self
+
+    def __neg__(self):
+        return DiceMultiplier(self, scalar=-1)
+
+    def __invert__(self):
+        return DiceMultiplier(self, scalar=-1)
+
 class RollableSequence(collections.abc.Sequence, Rollable):
     def __init__(self, group=[]):
         self.__group = tuple(group)
@@ -223,6 +244,25 @@ class DiceAdder(RollableSequence):
             for die, count in items.items()
         )
 
+        if DiceMultiplier in mappings:
+            multiplier_items = mappings.pop(DiceMultiplier)
+            merged_adders.extend([
+                DiceMultiplier(
+                    DiceAdder(*[
+                        elem
+                        for item in multiplier_items
+                        for group in item._group
+                        for elem in group
+                        if item.scalar == ms
+                    ]),
+                    scalar=ms
+                )
+                for ms in {
+                    item.scalar
+                    for item in multiplier_items
+                }
+            ])
+
         if mappings:
             rollable_items, scalars = zip(*[
                 (
@@ -277,7 +317,12 @@ class DiceAdder(RollableSequence):
         return hash((type(self), self.scalar) + self._group)
 
     def __str__(self):
-        ret = ' + '.join(str(item) for item in self._group)
+        ret = ' + '.join(
+            ''.join(['(', str(item), ')'])
+            if isinstance(item, DiceMultiplier)
+            else str(item)
+            for item in self._group
+        )
         if self.scalar > 0:
             ret = ' + '.join([ret, str(self.scalar)])
         elif self.scalar < 0:
@@ -294,20 +339,43 @@ class DiceAdder(RollableSequence):
 
 
 class DiceMultiplier(RollableSequence):
-    def __init__(self, *multipliers, scalar=1):
+    def __new__(cls, *multipliers, scalar=1):
         mappings = {
             type_: [item for item in multipliers if type(item) is type_]
-            for type_ in {type(item) for item in adders}
+            for type_ in {type(item) for item in multipliers}
         }
 
         merged_multipliers = []
-        scalar = 1
+
+        while DiceMultiplier in mappings:
+            dice_multipliers = mappings.pop(DiceMultiplier)
+            multiplier_items, scalars = zip(*[
+                (
+                    multiplier._group,
+                    multiplier.scalar
+                )
+                for multiplier in dice_multipliers
+            ])
+            multiplier_items = tuple(item for group in multiplier_items for item in group)
+            scalar *= functools.reduce(operator.mul, scalars)
+            for type_, items in (
+                (type_, [item for item in multiplier_items if type(item) is type_])
+                for type_ in {type(item) for item in multiplier_items}
+            ):
+                if type_ in mappings:
+                    mappings[type_].extend(items)
+
+                else:
+                    mappings[type_] = items
 
         if mappings:
             rollable_items, scalars = zip(*[
                 (
                     items if is_rollable else None,
-                    sum(items) if not is_rollable else None
+
+                    functools.reduce(operator.mul, items)
+                    if not is_rollable
+                    else None
                 )
                 for items, is_rollable in (
                     (
@@ -315,9 +383,9 @@ class DiceMultiplier(RollableSequence):
                         issubclass(type_, Rollable)
                     )
                     for type_, items in mappings.items()
-                    for item in items
                 )
             ])
+
 
             merged_multipliers.extend(
                 item
@@ -328,7 +396,14 @@ class DiceMultiplier(RollableSequence):
                 )
                 for item in group
             )
-            scalar += sum(item for item in scalars if item is not None)
+            scalar *= functools.reduce(
+                operator.mul,
+                (
+                    item
+                    for item in scalars
+                    if item is not None
+                )
+            )
 
         if scalar == 1 and len(merged_multipliers) == 1:
             ret = merged_multipliers[0]
@@ -339,6 +414,9 @@ class DiceMultiplier(RollableSequence):
             RollableSequence.__init__(ret, merged_multipliers)
 
         return ret
+
+    def __init__(self, *multipliers, scalar=1):
+        pass
 
     @property
     def scalar(self):
@@ -363,7 +441,12 @@ class DiceMultiplier(RollableSequence):
         if self.scalar == 0:
             ret = str(self.scalar)
         else:
-            ret = ' * '.join(str(item) for item in self._group)
+            ret = ' * '.join(
+                ''.join(['(', str(item), ')'])
+                if isinstance(item, DiceAdder)
+                else str(item)
+                for item in self._group
+            )
             if self.scalar not in {-1, 0, 1}:
                 ret = ' * '.join([ret, str(self.scalar)])
             elif self.scalar == -1:
