@@ -134,19 +134,19 @@ class Rollable(
         return DiceBitwiseInvert(self)
 
     def __abs__(self):
-        return abs(self())
+        return DiceAbs(self)
 
     def __trunc__(self):
-        return math.trunc(self())
+        return DiceTrunc(self)
 
     def __ceil__(self):
-        return math.ceil(self())
+        return DiceCeil(self)
 
     def __floor__(self):
-        return math.floor(self())
+        return DiceFloor(self)
 
     def __round__(self, ndigits=0):
-        return round(self(), ndigits)
+        return DiceRound(self, ndigits)
 
     def __and__(self, other):
         return DiceBitwiseAnd(self, other)
@@ -380,7 +380,11 @@ class DiceAdder(CollectedRollableSequence):
 
         else:
             ret = super().__new__(cls)
-            CollectedRollableSequence.__init__(ret, merged_adders, scalar=scalar)
+            CollectedRollableSequence.__init__(
+                ret,
+                merged_adders,
+                scalar=scalar
+            )
 
         return ret
 
@@ -506,7 +510,11 @@ class DiceMultiplier(CollectedRollableSequence):
         else:
             ret = super().__new__(cls)
             ret.__scalar = scalar
-            CollectedRollableSequence.__init__(ret, merged_multipliers, scalar=scalar)
+            CollectedRollableSequence.__init__(
+                ret,
+                merged_multipliers,
+                scalar=scalar
+            )
 
         return ret
 
@@ -759,7 +767,11 @@ class DiceBitwiseAnd(CollectedRollableSequence):
 
         else:
             ret = super().__new__(cls)
-            CollectedRollableSequence.__init__(ret, merged_values, scalar=scalar)
+            CollectedRollableSequence.__init__(
+                ret,
+                merged_values,
+                scalar=scalar
+            )
 
         return ret
 
@@ -907,7 +919,11 @@ class DiceBitwiseOr(CollectedRollableSequence):
 
         else:
             ret = super().__new__(cls)
-            CollectedRollableSequence.__init__(ret, merged_values, scalar=scalar)
+            CollectedRollableSequence.__init__(
+                ret,
+                merged_values,
+                scalar=scalar
+            )
 
         return ret
 
@@ -1047,7 +1063,11 @@ class DiceBitwiseXOr(CollectedRollableSequence):
 
         else:
             ret = super().__new__(cls)
-            CollectedRollableSequence.__init__(ret, merged_values, scalar=scalar)
+            CollectedRollableSequence.__init__(
+                ret,
+                merged_values,
+                scalar=scalar
+            )
 
         return ret
 
@@ -1092,6 +1112,7 @@ class DiceBitwiseXOr(CollectedRollableSequence):
             ret = ', '.join([ret, repr(self.scalar)])
 
         return ''.join(['DiceBitwiseXOr(', ret, ')'])
+
 
 class DiceBitwiseInvert(Rollable):
     def __new__(cls, element):
@@ -1195,5 +1216,211 @@ class DiceBitwiseShift(Rollable):
                 repr(self._value),
                 repr(self._shift)
             ]),
+            ')'
+        ])
+
+
+class DiceAbs(Rollable):
+    def __new__(cls, element):
+        if isinstance(element, DiceAbs):
+            ret = element
+
+        else:
+            ret = super().__new__(cls)
+            ret.__element = element
+
+        return ret
+
+    def __init__(self, element):
+        pass
+
+    @property
+    def _element(self):
+        return self.__element
+
+    def copy(self):
+        return DiceAbs(self._element.copy())
+
+    def _roll(self):
+        return abs(self._element())
+
+    def __hash__(self):
+        return hash((type(self), self._element))
+
+    def __str__(self):
+        return ''.join([
+            'abs(',
+            str(self._element),
+            ')'
+        ])
+
+    def __repr__(self):
+        return ''.join(['DiceAbs(', repr(self._element), ')'])
+
+
+class DiceTrunc(Rollable):
+    def __new__(cls, element):
+        if isinstance(element, DiceTrunc):
+            ret = element
+
+        else:
+            ret = super().__new__(cls)
+            ret.__element = element
+
+        return ret
+
+    def __init__(self, element):
+        pass
+
+    @property
+    def _element(self):
+        return self.__element
+
+    def copy(self):
+        return DiceTrunc(self._element.copy())
+
+    def _roll(self):
+        return math.trunc(self._element())
+
+    def __hash__(self):
+        return hash((type(self), self._element))
+
+    def __str__(self):
+        return ''.join([
+            'math.trunc(',
+            str(self._element),
+            ')'
+        ])
+
+    def __repr__(self):
+        return ''.join(['DiceTrunc(', repr(self._element), ')'])
+
+
+class DiceFloor(Rollable):
+    def __new__(cls, element):
+        if isinstance(element, DiceFloor):
+            ret = element
+
+        else:
+            ret = super().__new__(cls)
+            ret.__element = element
+
+        return ret
+
+    def __init__(self, element):
+        pass
+
+    @property
+    def _element(self):
+        return self.__element
+
+    def copy(self):
+        return DiceFloor(self._element.copy())
+
+    def _roll(self):
+        return math.floor(self._element())
+
+    def __hash__(self):
+        return hash((type(self), self._element))
+
+    def __str__(self):
+        return ''.join([
+            'math.floor(',
+            str(self._element),
+            ')'
+        ])
+
+    def __repr__(self):
+        return ''.join(['DiceFloor(', repr(self._element), ')'])
+
+
+class DiceCeil(Rollable):
+    def __new__(cls, element):
+        if isinstance(element, DiceCeil):
+            ret = element
+
+        else:
+            ret = super().__new__(cls)
+            ret.__element = element
+
+        return ret
+
+    def __init__(self, element):
+        pass
+
+    @property
+    def _element(self):
+        return self.__element
+
+    def copy(self):
+        return DiceCeil(self._element.copy())
+
+    def _roll(self):
+        return math.ceil(self._element())
+
+    def __hash__(self):
+        return hash((type(self), self._element))
+
+    def __str__(self):
+        return ''.join([
+            'math.ceil(',
+            str(self._element),
+            ')'
+        ])
+
+    def __repr__(self):
+        return ''.join(['DiceCeil(', repr(self._element), ')'])
+
+
+class DiceRound(Rollable):
+    def __new__(cls, element, ndigits=0):
+        if isinstance(element, DiceRound):
+            if element.ndigits < ndigits:
+                ndigits = element.ndigits
+            element = element._element
+
+        ret = super().__new__(cls)
+        ret.__element = element
+        ret.__ndigits = ndigits
+
+        return ret
+
+    def __init__(self, element):
+        pass
+
+    @property
+    def _element(self):
+        return self.__element
+
+    @property
+    def _ndigits(self):
+        return self.__ndigits
+
+    def copy(self):
+        return DiceRound(self._element.copy(), self._ndigits)
+
+    def _roll(self):
+        return round(self._element(), self._ndigits)
+
+    def __hash__(self):
+        return hash((type(self), self._element, self._ndigits))
+
+    def __str__(self):
+        elems = [
+            ''.join(['(', str(self._element), ')'])
+            if isinstance(self._element, CollectedRollableSequence)
+            else str(self._element)
+        ]
+        if self._ndigits:
+            elems += [str(self._ndigits)]
+
+        return ''.join(['random(', ', '.join(elems), ')'])
+
+    def __repr__(self):
+        return ''.join([
+            'DiceRound(',
+            repr(self._element),
+            ', ndigits=',
+            repr(self._ndigits),
             ')'
         ])
