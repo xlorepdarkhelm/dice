@@ -295,7 +295,50 @@ class DiceAdder(RollableSequence):
 
 class DiceMultiplier(RollableSequence):
     def __init__(self, *multipliers, scalar=1):
-        pass
+        mappings = {
+            type_: [item for item in multipliers if type(item) is type_]
+            for type_ in {type(item) for item in adders}
+        }
+
+        merged_multipliers = []
+        scalar = 1
+
+        if mappings:
+            rollable_items, scalars = zip(*[
+                (
+                    items if is_rollable else None,
+                    sum(items) if not is_rollable else None
+                )
+                for items, is_rollable in (
+                    (
+                        items,
+                        issubclass(type_, Rollable)
+                    )
+                    for type_, items in mappings.items()
+                    for item in items
+                )
+            ])
+
+            merged_multipliers.extend(
+                item
+                for group in (
+                    items
+                    for items in rollable_items
+                    if items is not None
+                )
+                for item in group
+            )
+            scalar += sum(item for item in scalars if item is not None)
+
+        if scalar == 1 and len(merged_multipliers) == 1:
+            ret = merged_multipliers[0]
+
+        else:
+            ret = super().__new__(cls)
+            ret.__scalar = scalar
+            RollableSequence.__init__(ret, merged_multipliers)
+
+        return ret
 
     @property
     def scalar(self):
@@ -307,8 +350,7 @@ class DiceMultiplier(RollableSequence):
             (
                 item()
                 for item in self._group
-            ),
-            1
+            )
         ) * self.scalar
 
     def copy(self):
