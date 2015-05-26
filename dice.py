@@ -131,22 +131,22 @@ class Rollable(
         return DiceMultiplier(self, scalar=-1)
 
     def __invert__(self):
-        return -self
+        return DiceBitwiseInvert(self)
 
     def __abs__(self):
-        return self.copy()
+        return abs(self())
 
     def __trunc__(self):
-        return math.trunc(self.last)
+        return math.trunc(self())
 
     def __ceil__(self):
-        return math.ceil(self.last)
+        return math.ceil(self())
 
     def __floor__(self):
-        return math.floor(self.last)
+        return math.floor(self())
 
     def __round__(self, ndigits=0):
-        return round(self.last, ndigits)
+        return round(self(), ndigits)
 
     def __and__(self, other):
         return DiceBitwiseAnd(self, other)
@@ -167,16 +167,16 @@ class Rollable(
         return DiceBitwiseOr(other, self)
 
     def __lshift__(self, other):
-        return int(self) << other
+        return DiceBitwiseShift(self, -other)
 
     def __rlshift__(self, other):
-        return other << int(self)
+        return DiceBitwiseShift(other, -self)
 
     def __rshift__(self, other):
-        return int(self) >> other
+        return DiceBitwiseShift(self, other)
 
     def __rrshift__(self, other):
-        return other >> int(self)
+        return DiceBitwiseShift(other, self)
 
 class RollableSequence(collections.abc.Sequence, Rollable):
     def __init__(self, group=[]):
@@ -256,7 +256,7 @@ class Dice(RollableSequence, HasConvention):
             return self.__die
 
     def copy(self):
-        return Dice(len(self), self.die)
+        return Dice(len(self), self.die.copy())
 
     def __hash__(self):
         return hash((type(self), self.convention) + self._group)
@@ -391,7 +391,10 @@ class DiceAdder(CollectedRollableSequence):
         return sum(item() for item in self._group) + self.scalar
 
     def copy(self):
-        return DiceAdder(*self._group, scalar=self.scalar)
+        return DiceAdder(
+            *[item.copy() for item in self._group],
+            scalar=self.scalar
+        )
 
     def __hash__(self):
         return hash((type(self), self.scalar) + self._group)
@@ -520,7 +523,10 @@ class DiceMultiplier(CollectedRollableSequence):
         ) * self.scalar
 
     def copy(self):
-        return DiceMultiplier(*self._group, scalar=self.scalar)
+        return DiceMultiplier(
+            *[item.copy() for item in self._group],
+            scalar=self.scalar
+        )
 
     def __hash__(self):
         return hash((type(self), self.scalar) + self._group)
@@ -557,7 +563,7 @@ class DiceMultiplier(CollectedRollableSequence):
 
 
 def DiceDivider(Rollable):
-    def __new__(self, numerator, denominator, *, truediv=True):
+    def __new__(cls, numerator, denominator, *, truediv=True):
         if not denominator:
             raise ZeroDivisionError
 
@@ -602,16 +608,29 @@ def DiceDivider(Rollable):
 
     def _roll(self):
         try:
-            self.numerator._roll()
-        except AttributeError:
+            self.numerator()
+        except TypeError:
             pass
 
         try:
-            self.denominator._roll()
-        except AttributeError:
+            self.denominator()
+        except TypeError:
             pass
 
         return float(self)
+
+    def copy(self):
+        try:
+            numerator = self.numerator.copy()
+        except AttributeError:
+            numerator = self.numerator
+
+        try:
+            denominator = self.denominator.copy()
+        except AttributeError:
+            denominator = self.denominator
+
+        return DiceDivider(numerator, denominator)
 
     def _truediv(self):
         return self.__truediv
@@ -643,7 +662,7 @@ def DiceDivider(Rollable):
 
 
 class DiceBitwiseAnd(CollectedRollableSequence):
-    def __new__(self, *values, scalar=None):
+    def __new__(cls, *values, scalar=-1):
         mappings = {
             type_: [item for item in values if type(item) is type_]
             for type_ in {type(item) for item in values}
@@ -663,12 +682,15 @@ class DiceBitwiseAnd(CollectedRollableSequence):
                 for group in value_items
                 for item in group
             )
-            scalars = [item for item in scalars if item is not None]
-            if scalars:
-                if scalar is None:
-                    scalar = functools.reduce(operator.and_, scalars)
-                else:
-                    scalar |= functools.reduce(operator.and_, scalars)
+            scalar |= functools.reduce(
+                operator.and_,
+                (
+                    item
+                    for item in scalars
+                    if item is not None
+                ),
+                -1
+            )
 
 
             for type_, items in (
@@ -718,12 +740,15 @@ class DiceBitwiseAnd(CollectedRollableSequence):
                 )
                 for item in group
             )
-            scalars = [item for item in scalars if item is not None]
-            if scalars:
-                if scalar is None:
-                    scalar = functools.reduce(operator.and_, scalars)
-                else:
-                    scalar |= functools.reduce(operator.and_, scalars)
+            scalar &= functools.reduce(
+                operator.and_,
+                (
+                    item
+                    for item in scalars
+                    if item is not None
+                ),
+                -1
+            )
 
 
         if not scalar:
@@ -738,7 +763,7 @@ class DiceBitwiseAnd(CollectedRollableSequence):
 
         return ret
 
-    def __init__(self, *values, scalar=1):
+    def __init__(self, *values, scalar=-1):
         pass
 
     def _roll(self):
@@ -755,13 +780,16 @@ class DiceBitwiseAnd(CollectedRollableSequence):
         return ret
 
     def copy(self):
-        return DiceBitwiseAnd(*self._group, scalar=self.scalar)
+        return DiceBitwiseAnd(
+            *[item.copy() for item in self._group],
+            scalar=self.scalar
+        )
 
     def __hash__(self):
         return hash((type(self), self.scalar) + self._group)
 
     def __str__(self):
-        if self.scalar is not None and self.scalar == 0:
+        if self.scalar == 0:
             ret = str(self.scalar)
         else:
             ret = ' & '.join(
@@ -770,24 +798,24 @@ class DiceBitwiseAnd(CollectedRollableSequence):
                 else str(item)
                 for item in self._group
             )
-            if self.scalar is not None:
+            if self.scalar != -1:
                 ret = ' & '.join([ret, str(self.scalar)])
 
         return ret
 
     def __repr__(self):
-        if self.scalar is not None and self.scalar == 0:
+        if self.scalar == 0:
             ret = repr(self.scalar)
         else:
             ret = ', '.join(repr(item) for item in self._group)
-            if self.scalar is not None:
+            if self.scalar != -1:
                 ret = ', '.join([ret, repr(self.scalar)])
 
         return ''.join(['DiceBitwiseAnd(', ret, ')'])
 
 
 class DiceBitwiseOr(CollectedRollableSequence):
-    def __new__(self, *values, scalar=0):
+    def __new__(cls, *values, scalar=0):
         mappings = {
             type_: [item for item in values if type(item) is type_]
             for type_ in {type(item) for item in values}
@@ -898,7 +926,10 @@ class DiceBitwiseOr(CollectedRollableSequence):
         return ret
 
     def copy(self):
-        return DiceBitwiseOr(*self._group, scalar=self.scalar)
+        return DiceBitwiseOr(
+            *[item.copy() for item in self._group],
+            scalar=self.scalar
+        )
 
     def __hash__(self):
         return hash((type(self), self.scalar) + self._group)
@@ -924,7 +955,7 @@ class DiceBitwiseOr(CollectedRollableSequence):
 
 
 class DiceBitwiseXOr(CollectedRollableSequence):
-    def __new__(self, *values, scalar=0):
+    def __new__(cls, *values, scalar=0):
         mappings = {
             type_: [item for item in values if type(item) is type_]
             for type_ in {type(item) for item in values}
@@ -1035,7 +1066,10 @@ class DiceBitwiseXOr(CollectedRollableSequence):
         return ret
 
     def copy(self):
-        return DiceBitwiseXOr(*self._group, scalar=self.scalar)
+        return DiceBitwiseXOr(
+            *[item.copy() for item in self._group],
+            scalar=self.scalar
+        )
 
     def __hash__(self):
         return hash((type(self), self.scalar) + self._group)
@@ -1058,3 +1092,108 @@ class DiceBitwiseXOr(CollectedRollableSequence):
             ret = ', '.join([ret, repr(self.scalar)])
 
         return ''.join(['DiceBitwiseXOr(', ret, ')'])
+
+class DiceBitwiseInvert(Rollable):
+    def __new__(cls, element):
+        if isinstance(element, DiceBitwiseInvert):
+            ret = element._element
+
+        else:
+            ret = super().__new__(cls)
+            ret.__element = element
+
+        return ret
+
+    def __init__(self, element):
+        pass
+
+    @property
+    def _element(self):
+        return self.__element
+
+    def copy(self):
+        return DiceBitwiseInvert(self._element.copy())
+
+    def _roll(self):
+        return ~(self._element())
+
+    def __hash__(self):
+        return hash((type(self), self._element))
+
+    def __str__(self):
+        return ''.join([
+            '~',
+            ''.join(['(', str(self._element), ')'])
+            if isinstance(self._element, CollectedRollableSequence)
+            else str(self._element)
+        ])
+
+    def __repr__(self):
+        return ''.join(['DiceBitwiseInvert(', repr(self._element), ')'])
+
+
+class DiceBitwiseShift(Rollable):
+    def __new__(cls, value, shift):
+        self.__value = value
+        self.__shift = shift
+
+    @property
+    def _value(self):
+        return self.__value
+
+    @property
+    def _shift(self):
+        return self.__shift
+
+    def _roll(self):
+        try:
+            value = self._value()
+        except TypeError:
+            value = self._value
+
+        try:
+            shift = self._shift()
+        except TypeError:
+            shift = self._shift
+
+        if shift < 0:
+            return value << abs(shift)
+        else:
+            return value >> abs(shift)
+
+    def copy(self):
+        try:
+            value = self._value.copy()
+        except AttributeError:
+            value = self._value
+
+        try:
+            shift = self._shift.copy()
+        except AttributeError:
+            shift = self._shift
+
+        return DiceBitwiseShift(value, shift)
+
+    def __hash__(self):
+        return hash((type(self), self._value, self._shift))
+
+    def __str__(self):
+        return (' << ' if int(self._shift) < 0 else ' >> ').join([
+            ''.join(['(', str(self._value), ')'])
+            if isinstance(self._value, CollectedRollableSequence)
+            else str(self._value),
+
+            ''.join(['(', str(abs(self._shift)), ')'])
+            if isinstance(abs(self._shift), CollectedRollableSequence)
+            else str(abs(self._shift))
+        ])
+
+    def __repr__(self):
+        return ''.join([
+            'DiceBitwiseShift(',
+            ', '.join([
+                repr(self._value),
+                repr(self._shift)
+            ]),
+            ')'
+        ])
