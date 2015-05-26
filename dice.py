@@ -177,10 +177,10 @@ class Rollable(
 
     def __rrshift__(self, other):
         return DiceBitwiseShift(other, self)
-        
+
     def __mod__(self, other):
         return DiceModulus(self, other)
-        
+
     def __rmod__(self, other):
         return DiceModulus(other, self)
 
@@ -590,17 +590,33 @@ def DiceDivider(Rollable):
             denominator = DiceMultiplier(*denominator._group)
 
         elif not isinstance(denominator, Rollable) and denominator == 1:
-            return numerator
+            ret = numerator
 
         elif not isinstance(denominator, Rollable):
-            return DiceMultiplier(numerator, scalar=1 / denominator)
+            ret = DiceMultiplier(numerator, scalar=1 / denominator)
 
         else:
             ret = super().__new__(cls)
-            ret.__numerator = numerator
-            ret.__denominator = denominator
+            try:
+                new_numerator = numerator.numerator
+                new_denominator = numerator.denominator
+
+            except AttributeError:
+                new_numerator = numerator
+                new_denominator = 1
+
+            try:
+                new_numerator *= denominator.denominator
+                new_denominator *= denominator.numerator
+
+            except AttributeError:
+                new_denominator *= denominator
+
+            ret.__numerator = new_numerator
+            ret.__denominator = new_denominator
             ret.__truediv = truediv
-            return ret
+
+        return ret
 
     def __init__(self, numerator, divisor):
         pass
@@ -1434,9 +1450,24 @@ def DiceModulus(Rollable):
         if not denominator:
             raise ZeroDivisionError
 
+        try:
+            new_numerator = numerator.numerator
+            new_denominator = numerator.denominator
+
+        except AttributeError:
+            new_numerator = numerator
+            new_denominator = 1
+
+        try:
+            new_denominator *= denominator.numerator
+            new_numerator *= denominator.denominator
+
+        except AttributeError:
+            new_denominator *= denominator
+
         ret = super().__new__(cls)
-        ret.__numerator = numerator
-        ret.__denominator = denominator
+        ret.__numerator = new_numerator
+        ret.__denominator = new_denominator
         return ret
 
     def __init__(self, numerator, denominator):
