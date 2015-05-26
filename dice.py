@@ -2,6 +2,7 @@
 
 import abc
 import functools
+import numbers
 import operator
 import random
 import collections.abc
@@ -28,8 +29,22 @@ class HasConvention:
 class Rollable(
     collections.abc.Hashable,
     collections.abc.Callable,
+    numbers.Integral,
     metaclass=abc.ABCMeta
 ):
+    """
+    The fundamental base class of all rollable/dice objects. This class drives
+    all dice capabilities. Every Rollable object is callable, which is how it is
+    rolled.  Rollables are essentially treated like integers that the value can
+    be fluctuated by rolling. However, they also have a consistant aspect that
+    is hashable, that exists apart from their value, representing the components
+    that make up the rollable object (like the number of sides of a Die, for
+    instance).
+
+    All subclasses must define the _roll() and copy() methods, as well as the
+    special methods __str__() and __repr__().
+    """
+
     @property
     def last(self):
         try:
@@ -48,12 +63,6 @@ class Rollable(
     def __index__(self):
         return int(self.last)
 
-    def __float__(self):
-        return float(self.last)
-
-    def __complex__(self):
-        return complex(self.last)
-
     def __round__(self):
         return round(self.last)
 
@@ -68,19 +77,19 @@ class Rollable(
 
     @abc.abstractmethod
     def __str__(self):
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def __repr__(self):
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def _roll(self):
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def copy(self):
-        pass
+        raise NotImplementedError
 
     def __add__(self, other):
         return DiceAdder(self, other)
@@ -99,6 +108,18 @@ class Rollable(
 
     def __rmul__(self, other):
         return DiceMultiplier(other, self)
+        
+    def __truediv__(self, other):
+        return DiceDivider(self, other, truediv=True)
+        
+    def __rtruediv(self, other):
+        return DiceDivider(other, self, truediv=True)
+
+    def __floordiv__(self, other):
+        return DiceDivider(self, other, truediv=False)
+        
+    def __rfloordiv(self, other):
+        return DiceDivider(other, self, truediv=False)
 
     def __pos__(self):
         return self
@@ -488,3 +509,89 @@ class DiceMultiplier(RollableSequence):
 
     def __abs__(self):
         return DiceMultiplier(*self._group, scalar=abs(self.scalar))
+
+
+def DiceDivider(Rollable):
+    def __new__(self, numerator, denominator, *, truediv=True):
+        if not denominator:
+            raise ZeroDivisionError
+
+        if (
+            isinstance(numerator, DiceMultiplier) and
+            isinstance(denominator, DiceMultiplier)
+        ):
+            new_scalar = numerator.scalar / denominator.scalar
+            numerator = DiceMultiplier(*numerator._group, scalar=new_scalar)
+            denominator = DiceMultiplier(*denominator._group)
+
+        elif not isinstance(denominator, Rollable) and denominator == 1:
+            return numerator
+
+        elif not isinstance(denominator, Rollable):
+            return DiceMultiplier(numerator, scalar=1 / denominator)
+            
+        else:
+            ret = super().__new__(cls)
+            ret.__numerator = numerator
+            ret.__denominator = denominator
+            ret.__truediv = truediv
+            return ret
+            
+    def __init__(self, numerator, divisor):
+        pass
+            
+    def __float__(self):
+        if self._truediv:
+            return float(self.numerator) / float(self.denominator)
+        
+        else:
+            return int(float(self.numerator) // float(self.denominator))
+         
+    @property
+    def numerator(self):
+        return self.__numerator
+        
+    @property
+    def denominator(self):
+        return self.__denominator
+        
+    def _roll(self):
+        try:
+            self.numerator._roll()
+        except AttributeError:
+            pass
+        
+        try:
+            self.denominator._roll()
+        except AttributeError:
+            pass
+        
+        return float(self)
+        
+    def _truediv(self):
+        return self.__truediv
+        
+    def __hash__(self):
+        return hash(type(self), self.numerator, self.denominator)
+
+    def __str__(self):
+        return (' / ' if self._truediv else ' // ').join([
+            ''.join(['(', str(self.numerator), ')'])
+            if isinstance(self.numerator, (DiceMultiplier, DiceAdder))
+            else str(self.numerator),
+            
+            ''.join(['(', str(self.denominator), ')'])
+            if isinstance(self.denominator, (DiceMultiplier, DiceAdder))
+            else str(self.denominator)
+        ])
+        
+    def __repr__(self):
+        return ''.join([
+            'DiceDivider(',
+            ', '.join([
+                repr(self.numerator),
+                repr(self.denominator),
+                '='.join(['truediv', self._truediv])
+            ])
+            ')'
+        ])
