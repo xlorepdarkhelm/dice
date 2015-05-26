@@ -2,6 +2,7 @@
 
 import abc
 import functools
+import math
 import numbers
 import operator
 import random
@@ -25,7 +26,6 @@ class HasConvention:
         return self.__convention
 
 
-@functools.total_ordering
 class Rollable(
     collections.abc.Hashable,
     collections.abc.Callable,
@@ -75,6 +75,15 @@ class Rollable(
     def __gt__(self, other):
         return self.last > other
 
+    def __ge__(self, other):
+        return self.last >= other
+
+    def __lt__(self, other):
+        return self.last < other
+
+    def __le__(self, other):
+        return self.last <= other
+
     @abc.abstractmethod
     def __str__(self):
         raise NotImplementedError
@@ -97,41 +106,77 @@ class Rollable(
     def __radd__(self, other):
         return DiceAdder(other, self)
 
-    def __sub__(self, other):
-        return operator.add(self, -other)
-
-    def __rsub__(self, other):
-        return operator.add(-self, other)
-
     def __mul__(self, other):
         return DiceMultiplier(self, other)
 
     def __rmul__(self, other):
         return DiceMultiplier(other, self)
-        
+
     def __truediv__(self, other):
         return DiceDivider(self, other, truediv=True)
-        
-    def __rtruediv(self, other):
+
+    def __rtruediv__(self, other):
         return DiceDivider(other, self, truediv=True)
 
     def __floordiv__(self, other):
         return DiceDivider(self, other, truediv=False)
-        
-    def __rfloordiv(self, other):
+
+    def __rfloordiv__(self, other):
         return DiceDivider(other, self, truediv=False)
 
     def __pos__(self):
-        return self
+        return self.copy()
 
     def __neg__(self):
         return DiceMultiplier(self, scalar=-1)
 
     def __invert__(self):
-        return DiceMultiplier(self, scalar=-1)
+        return -self
 
     def __abs__(self):
-        return self
+        return self.copy()
+
+    def __trunc__(self):
+        return math.trunc(self.last)
+
+    def __ceil__(self):
+        return math.ceil(self.last)
+
+    def __floor__(self):
+        return math.floor(self.last)
+
+    def __round__(self, ndigits=0):
+        return round(self.last, ndigits)
+
+    def __and__(self, other):
+        return int(self) & other
+
+    def __rand__(self, other):
+        return other & int(self)
+
+    def __xor__(self, other):
+        return int(self) ^ other
+
+    def __rxor__(self, other):
+        return other ^ int(self)
+
+    def __or__(self, other):
+        return int(self) | other
+
+    def __ror__(self, other):
+        return other | int(self)
+
+    def __lshift__(self, other):
+        return int(self) << other
+
+    def __rlshift__(self, other):
+        return other << int(self)
+
+    def __rshift__(self, other):
+        return int(self) >> other
+
+    def __rrshift__(self, other):
+        return other >> int(self)
 
 class RollableSequence(collections.abc.Sequence, Rollable):
     def __init__(self, group=[]):
@@ -529,48 +574,48 @@ def DiceDivider(Rollable):
 
         elif not isinstance(denominator, Rollable):
             return DiceMultiplier(numerator, scalar=1 / denominator)
-            
+
         else:
             ret = super().__new__(cls)
             ret.__numerator = numerator
             ret.__denominator = denominator
             ret.__truediv = truediv
             return ret
-            
+
     def __init__(self, numerator, divisor):
         pass
-            
+
     def __float__(self):
         if self._truediv:
             return float(self.numerator) / float(self.denominator)
-        
+
         else:
             return int(float(self.numerator) // float(self.denominator))
-         
+
     @property
     def numerator(self):
         return self.__numerator
-        
+
     @property
     def denominator(self):
         return self.__denominator
-        
+
     def _roll(self):
         try:
             self.numerator._roll()
         except AttributeError:
             pass
-        
+
         try:
             self.denominator._roll()
         except AttributeError:
             pass
-        
+
         return float(self)
-        
+
     def _truediv(self):
         return self.__truediv
-        
+
     def __hash__(self):
         return hash(type(self), self.numerator, self.denominator)
 
@@ -579,12 +624,12 @@ def DiceDivider(Rollable):
             ''.join(['(', str(self.numerator), ')'])
             if isinstance(self.numerator, (DiceMultiplier, DiceAdder))
             else str(self.numerator),
-            
+
             ''.join(['(', str(self.denominator), ')'])
             if isinstance(self.denominator, (DiceMultiplier, DiceAdder))
             else str(self.denominator)
         ])
-        
+
     def __repr__(self):
         return ''.join([
             'DiceDivider(',
@@ -592,6 +637,6 @@ def DiceDivider(Rollable):
                 repr(self.numerator),
                 repr(self.denominator),
                 '='.join(['truediv', self._truediv])
-            ])
+            ]),
             ')'
         ])
