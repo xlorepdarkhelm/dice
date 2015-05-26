@@ -149,22 +149,22 @@ class Rollable(
         return round(self.last, ndigits)
 
     def __and__(self, other):
-        return int(self) & other
+        return DiceBitwiseAnd(self, other)
 
     def __rand__(self, other):
-        return other & int(self)
+        return DiceBitwiseAnd(other, self)
 
     def __xor__(self, other):
-        return int(self) ^ other
+        return DiceBitwiseXOr(self, other)
 
     def __rxor__(self, other):
-        return other ^ int(self)
+        return DiceBitwiseXOr(other, self)
 
     def __or__(self, other):
-        return int(self) | other
+        return DiceBitwiseOr(self, other)
 
     def __ror__(self, other):
-        return other | int(self)
+        return DiceBitwiseOr(other, self)
 
     def __lshift__(self, other):
         return int(self) << other
@@ -191,6 +191,15 @@ class RollableSequence(collections.abc.Sequence, Rollable):
 
     def __len__(self):
         return len(self._group)
+
+class CollectedRollableSequence(RollableSequence):
+    def __init__(self, items, *, scalar):
+        self.__scalar = scalar
+        super().__init__(items)
+
+    @property
+    def scalar(self):
+        return self.__scalar
 
 class Die(Rollable, HasConvention):
     def __init__(self, sides, convention=standard_die):
@@ -258,7 +267,7 @@ class Dice(RollableSequence, HasConvention):
     def __repr__(self):
         return ''.join(['Dice(', repr(len(self)), ', ', repr(self.die), ')'])
 
-class DiceAdder(RollableSequence):
+class DiceAdder(CollectedRollableSequence):
     def __new__(cls, *adders, scalar=0):
         mappings = {
             type_: [item for item in adders if type(item) is type_]
@@ -371,17 +380,12 @@ class DiceAdder(RollableSequence):
 
         else:
             ret = super().__new__(cls)
-            ret.__scalar = scalar
-            RollableSequence.__init__(ret, merged_adders)
+            CollectedRollableSequence.__init__(ret, merged_adders, scalar=scalar)
 
         return ret
 
     def __init__(self, *adders, scalar=0):
         pass
-
-    @property
-    def scalar(self):
-        return self.__scalar
 
     def _roll(self):
         return sum(item() for item in self._group) + self.scalar
@@ -395,7 +399,7 @@ class DiceAdder(RollableSequence):
     def __str__(self):
         ret = ' + '.join(
             ''.join(['(', str(item), ')'])
-            if isinstance(item, DiceMultiplier)
+            if isinstance(item, CollectedRollableSequence)
             else str(item)
             for item in self._group
         )
@@ -414,14 +418,12 @@ class DiceAdder(RollableSequence):
         return ''.join(['DiceAdder(', ret, ')'])
 
 
-class DiceMultiplier(RollableSequence):
+class DiceMultiplier(CollectedRollableSequence):
     def __new__(cls, *multipliers, scalar=1):
         mappings = {
             type_: [item for item in multipliers if type(item) is type_]
             for type_ in {type(item) for item in multipliers}
         }
-
-        merged_multipliers = []
 
         while DiceMultiplier in mappings:
             dice_multipliers = mappings.pop(DiceMultiplier)
@@ -454,6 +456,8 @@ class DiceMultiplier(RollableSequence):
 
                 else:
                     mappings[type_] = items
+
+        merged_multipliers = []
 
         if mappings:
             rollable_items, scalars = zip(*[
@@ -499,16 +503,12 @@ class DiceMultiplier(RollableSequence):
         else:
             ret = super().__new__(cls)
             ret.__scalar = scalar
-            RollableSequence.__init__(ret, merged_multipliers)
+            CollectedRollableSequence.__init__(ret, merged_multipliers, scalar=scalar)
 
         return ret
 
     def __init__(self, *multipliers, scalar=1):
         pass
-
-    @property
-    def scalar(self):
-        return self.__scalar
 
     def _roll(self):
         return functools.reduce(
@@ -531,7 +531,7 @@ class DiceMultiplier(RollableSequence):
         else:
             ret = ' * '.join(
                 ''.join(['(', str(item), ')'])
-                if isinstance(item, DiceAdder)
+                if isinstance(item, CollectedRollableSequence)
                 else str(item)
                 for item in self._group
             )
@@ -622,11 +622,11 @@ def DiceDivider(Rollable):
     def __str__(self):
         return (' / ' if self._truediv else ' // ').join([
             ''.join(['(', str(self.numerator), ')'])
-            if isinstance(self.numerator, (DiceMultiplier, DiceAdder))
+            if isinstance(self.numerator, CollectedRollableSequence)
             else str(self.numerator),
 
             ''.join(['(', str(self.denominator), ')'])
-            if isinstance(self.denominator, (DiceMultiplier, DiceAdder))
+            if isinstance(self.denominator, CollectedRollableSequence)
             else str(self.denominator)
         ])
 
@@ -640,3 +640,421 @@ def DiceDivider(Rollable):
             ]),
             ')'
         ])
+
+
+class DiceBitwiseAnd(CollectedRollableSequence):
+    def __new__(self, *values, scalar=None):
+        mappings = {
+            type_: [item for item in values if type(item) is type_]
+            for type_ in {type(item) for item in values}
+        }
+
+        while DiceBitwiseAnd in mappings:
+            dice_values = mappings.pop(DiceBitwiseAnd)
+            value_items, scalars = zip(*[
+                (
+                    value._group,
+                    value.scalar
+                )
+                for value in dice_values
+            ])
+            value_items = tuple(
+                item
+                for group in value_items
+                for item in group
+            )
+            scalars = [item for item in scalars if item is not None]
+            if scalars:
+                if scalar is None:
+                    scalar = functools.reduce(operator.and_, scalars)
+                else:
+                    scalar |= functools.reduce(operator.and_, scalars)
+
+
+            for type_, items in (
+                (
+                    type_,
+                    [
+                        item
+                        for item in value_items
+                        if type(item) is type_
+                    ]
+                )
+                for type_ in {type(item) for item in value_items}
+            ):
+                if type_ in mappings:
+                    mappings[type_].extend(items)
+
+                else:
+                    mappings[type_] = items
+
+        merged_adders = []
+
+        if mappings:
+            rollable_items, scalars = zip(*[
+                (
+                    items if is_rollable else None,
+
+                    functools.reduce(operator.and_, items)
+                    if not is_rollable
+                    else None
+                )
+                for items, is_rollable in (
+                    (
+                        items,
+                        issubclass(type_, Rollable)
+                    )
+                    for type_, items in mappings.items()
+                )
+            ])
+
+
+            merged_adders.extend(
+                item
+                for group in (
+                    items
+                    for items in rollable_items
+                    if items is not None
+                )
+                for item in group
+            )
+            scalars = [item for item in scalars if item is not None]
+            if scalars:
+                if scalar is None:
+                    scalar = functools.reduce(operator.and_, scalars)
+                else:
+                    scalar |= functools.reduce(operator.and_, scalars)
+
+
+        if not scalar:
+            ret = 0
+
+        elif len(merged_values) == 1:
+            ret = merged_values[0]
+
+        else:
+            ret = super().__new__(cls)
+            CollectedRollableSequence.__init__(ret, merged_values, scalar=scalar)
+
+        return ret
+
+    def __init__(self, *values, scalar=1):
+        pass
+
+    def _roll(self):
+        ret = functools.reduce(
+            operator.and_,
+            (
+                item()
+                for item in self._group
+            )
+        )
+        if self.scalar is not None:
+            ret &= self.scalar
+
+        return ret
+
+    def copy(self):
+        return DiceBitwiseAnd(*self._group, scalar=self.scalar)
+
+    def __hash__(self):
+        return hash((type(self), self.scalar) + self._group)
+
+    def __str__(self):
+        if self.scalar is not None and self.scalar == 0:
+            ret = str(self.scalar)
+        else:
+            ret = ' & '.join(
+                ''.join(['(', str(item), ')'])
+                if isinstance(item, CollectedRollableSequence)
+                else str(item)
+                for item in self._group
+            )
+            if self.scalar is not None:
+                ret = ' & '.join([ret, str(self.scalar)])
+
+        return ret
+
+    def __repr__(self):
+        if self.scalar is not None and self.scalar == 0:
+            ret = repr(self.scalar)
+        else:
+            ret = ', '.join(repr(item) for item in self._group)
+            if self.scalar is not None:
+                ret = ', '.join([ret, repr(self.scalar)])
+
+        return ''.join(['DiceBitwiseAnd(', ret, ')'])
+
+
+class DiceBitwiseOr(CollectedRollableSequence):
+    def __new__(self, *values, scalar=0):
+        mappings = {
+            type_: [item for item in values if type(item) is type_]
+            for type_ in {type(item) for item in values}
+        }
+
+        while DiceBitwiseOr in mappings:
+            dice_values = mappings.pop(DiceBitwiseOr)
+            value_items, scalars = zip(*[
+                (
+                    value._group,
+                    value.scalar
+                )
+                for value in dice_values
+            ])
+            value_items = tuple(
+                item
+                for group in value_items
+                for item in group
+            )
+            scalar |= functools.reduce(
+                operator.or_,
+                (
+                    item
+                    for item in scalars
+                    if item is not None
+                ),
+                0
+            )
+
+            for type_, items in (
+                (
+                    type_,
+                    [
+                        item
+                        for item in value_items
+                        if type(item) is type_
+                    ]
+                )
+                for type_ in {type(item) for item in value_items}
+            ):
+                if type_ in mappings:
+                    mappings[type_].extend(items)
+
+                else:
+                    mappings[type_] = items
+
+        merged_values = []
+
+        if mappings:
+            rollable_items, scalars = zip(*[
+                (
+                    items if is_rollable else None,
+
+                    functools.reduce(operator.or_, items)
+                    if not is_rollable
+                    else None
+                )
+                for items, is_rollable in (
+                    (
+                        items,
+                        issubclass(type_, Rollable)
+                    )
+                    for type_, items in mappings.items()
+                )
+            ])
+
+
+            merged_values.extend(
+                item
+                for group in (
+                    items
+                    for items in rollable_items
+                    if items is not None
+                )
+                for item in group
+            )
+            scalar |= functools.reduce(
+                operator.or_,
+                (
+                    item
+                    for item in scalars
+                    if item is not None
+                ),
+                0
+            )
+
+        if len(merged_values) == 1:
+            ret = merged_values[0]
+
+        else:
+            ret = super().__new__(cls)
+            CollectedRollableSequence.__init__(ret, merged_values, scalar=scalar)
+
+        return ret
+
+    def __init__(self, *values, scalar):
+        pass
+
+    def _roll(self):
+        ret = functools.reduce(
+            operator.or_,
+            (
+                item()
+                for item in self._group
+            )
+        ) | self.scalar
+
+        return ret
+
+    def copy(self):
+        return DiceBitwiseOr(*self._group, scalar=self.scalar)
+
+    def __hash__(self):
+        return hash((type(self), self.scalar) + self._group)
+
+    def __str__(self):
+        ret = ' | '.join(
+            ''.join(['(', str(item), ')'])
+            if isinstance(item, CollectedRollableSequence)
+            else str(item)
+            for item in self._group
+        )
+        if self.scalar:
+            ret = ' | '.join([ret, str(self.scalar)])
+
+        return ret
+
+    def __repr__(self):
+        ret = ', '.join(repr(item) for item in self._group)
+        if self.scalar is not None:
+            ret = ', '.join([ret, repr(self.scalar)])
+
+        return ''.join(['DiceBitwiseOr(', ret, ')'])
+
+
+class DiceBitwiseXOr(CollectedRollableSequence):
+    def __new__(self, *values, scalar=0):
+        mappings = {
+            type_: [item for item in values if type(item) is type_]
+            for type_ in {type(item) for item in values}
+        }
+
+        while DiceBitwiseXOr in mappings:
+            dice_values = mappings.pop(DiceBitwiseXOr)
+            value_items, scalars = zip(*[
+                (
+                    value._group,
+                    value.scalar
+                )
+                for value in dice_values
+            ])
+            value_items = tuple(
+                item
+                for group in value_items
+                for item in group
+            )
+            scalar ^= functools.reduce(
+                operator.xor_,
+                (
+                    item
+                    for item in scalars
+                    if item is not None
+                ),
+                0
+            )
+
+            for type_, items in (
+                (
+                    type_,
+                    [
+                        item
+                        for item in value_items
+                        if type(item) is type_
+                    ]
+                )
+                for type_ in {type(item) for item in value_items}
+            ):
+                if type_ in mappings:
+                    mappings[type_].extend(items)
+
+                else:
+                    mappings[type_] = items
+
+        merged_values = []
+
+        if mappings:
+            rollable_items, scalars = zip(*[
+                (
+                    items if is_rollable else None,
+
+                    functools.reduce(operator.xor_, items)
+                    if not is_rollable
+                    else None
+                )
+                for items, is_rollable in (
+                    (
+                        items,
+                        issubclass(type_, Rollable)
+                    )
+                    for type_, items in mappings.items()
+                )
+            ])
+
+
+            merged_values.extend(
+                item
+                for group in (
+                    items
+                    for items in rollable_items
+                    if items is not None
+                )
+                for item in group
+            )
+            scalar ^= functools.reduce(
+                operator.or_,
+                (
+                    item
+                    for item in scalars
+                    if item is not None
+                ),
+                0
+            )
+
+        if len(merged_values) == 1:
+            ret = merged_values[0]
+
+        else:
+            ret = super().__new__(cls)
+            CollectedRollableSequence.__init__(ret, merged_values, scalar=scalar)
+
+        return ret
+
+    def __init__(self, *values, scalar):
+        pass
+
+    def _roll(self):
+        ret = functools.reduce(
+            operator.xor_,
+            (
+                item()
+                for item in self._group
+            )
+        ) ^ self.scalar
+
+        return ret
+
+    def copy(self):
+        return DiceBitwiseXOr(*self._group, scalar=self.scalar)
+
+    def __hash__(self):
+        return hash((type(self), self.scalar) + self._group)
+
+    def __str__(self):
+        ret = ' ^ '.join(
+            ''.join(['(', str(item), ')'])
+            if isinstance(item, CollectedRollableSequence)
+            else str(item)
+            for item in self._group
+        )
+        if self.scalar:
+            ret = ' ^ '.join([ret, str(self.scalar)])
+
+        return ret
+
+    def __repr__(self):
+        ret = ', '.join(repr(item) for item in self._group)
+        if self.scalar is not None:
+            ret = ', '.join([ret, repr(self.scalar)])
+
+        return ''.join(['DiceBitwiseXOr(', ret, ')'])
