@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
 
+"""
+Module designed to provide a new numerical datatype for simulating dice rolls.
+The actual rolling mechanic used is to call the object like a function with
+parenthesis next to it, like: ``d6()``. This rolls the die and returns the value
+of the die.
+
+Standard mathematical operations are possible on dice, however it constructs
+the operation into objects that process the operation when rolled. So,
+``d6 + 5`` would make a new object, which in turn can be rolled:
+``a = dice.Die(6) + 5; a()``.
+
+"""
+
 import abc
 import functools
 import math
