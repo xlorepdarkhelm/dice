@@ -193,10 +193,10 @@ class Rollable(
 
     def __rpow__(self, other):
         return DicePower(other, self)
-        
+
     def __divmod__(self, other):
         return DiceDivMod(self, other)
-        
+
     def __rdivmod__(self, other):
         return DiceDivMod(other, self)
 
@@ -609,7 +609,7 @@ class DiceMultiplier(ScalarRollableSequence, Parenthesize):
         return DiceMultiplier(*self._group, scalar=abs(self.scalar))
 
 
-def DiceFloorDivider(Rollable, Parenthesize):
+class DiceFloorDivider(Rollable, Parenthesize):
     def __new__(cls, numerator, denominator):
         if not denominator:
             raise ZeroDivisionError
@@ -715,7 +715,7 @@ def DiceFloorDivider(Rollable, Parenthesize):
         ])
 
 
-def DiceTrueDivider(Rollable, Parenthesize):
+class DiceTrueDivider(Rollable, Parenthesize):
     def __new__(cls, numerator, denominator):
         if not denominator:
             raise ZeroDivisionError
@@ -821,7 +821,7 @@ def DiceTrueDivider(Rollable, Parenthesize):
         ])
 
 
-def DiceDivMod(Rollable):
+class DiceDivMod(Rollable):
     def __new__(cls, numerator, denominator):
         if not denominator:
             raise ZeroDivisionError
@@ -912,7 +912,7 @@ def DiceDivMod(Rollable):
                 self.numerator.paren_str()
                 if isinstance(self.numerator, Parenthesize)
                 else str(self.numerator),
-    
+
                 self.denominator.paren_str()
                 if isinstance(self.denominator, Parenthesize)
                 else str(self.denominator)
@@ -1792,19 +1792,87 @@ class DiceModulus(Rollable, Parenthesize):
 
 
 class DicePower(Rollable, Parenthesize):
+    @classmethod
+    def __get_pieces(cls, item):
+        if isinstance(item, DicePower):
+            bbase, bexp = cls.__get_pieces(item._base)
+            ebase, eexp = cls.__get_pieces(item._exponent)
+            base = bbase
+            exp = []
+            if bexp:
+                exp.extend(bexp)
+
+            if ebase:
+                exp.append(ebase)
+
+            if eexp:
+                exp.extend(eexp)
+
+            return base, exp
+
+        else:
+            return item, []
+
     def __new__(cls, base, exponent):
-        if isinstance(exponent, DicePower):
-            mult_group = [exponent._base]
-            exponent = exponent._exponent
-            while isinstance(exponent, DicePower):
-                mult_group.append(exponent._base)
-                exponent = exponent._exponent
+        bbase, bexp = cls.__get_pieces(base)
+        ebase, eexp = cls.__get_pieces(exponent)
 
-            exponent = DiceMultiplier(*mult_group)
+        base = bbase
+        group = []
 
-        ret = super().__new__(cls)
-        ret.__base = base
-        ret.__exponent = exponent
+        if bexp:
+            group.extend(bexp)
+
+        if ebase:
+            group.append(ebase)
+
+        if eexp:
+            group.extend(eexp)
+
+        rollables, scalars = zip(*[
+            (
+                item if is_rollable else None,
+                item if not is_rollable else None
+            )
+            for item, is_rollable in (
+                (
+                    item,
+                    isinstance(item, Rollable)
+                )
+                for item in group
+            )
+        ])
+        rollables = [item for item in rollables if item is not None]
+        scalar = functools.reduce(
+            operator.mul,
+            (item for item in scalars if item is not None),
+            1
+        )
+
+        if rollables:
+            exponent = DiceMultiplier(*rollables, scalar=scalar)
+        else:
+            exponent = scalar
+
+        if not isinstance(base, Rollable) and base == 0:
+            ret = 0
+
+        elif (
+            (not isinstance(base, Rollable) and base == 1) or
+            (not isinstance(exponent, Rollable) and exponent == 0)
+        ):
+            ret = 1
+
+        elif not isinstance(exponent, Rollable) and exponent == 1:
+            ret = base
+
+        elif not isinstance(exponent, Rollable) and exponent == -1:
+            ret = DiceTrueDivider(1, base)
+
+        else:
+            ret = super().__new__(cls)
+            ret.__base = base
+            ret.__exponent = exponent
 
         return ret
 
