@@ -26,6 +26,10 @@ class HasConvention:
         return self.__convention
 
 
+class Parenthesize:
+    def paren_str(self):
+        return ''.join(['(', str(self), ')'])
+
 class Rollable(
     collections.abc.Hashable,
     collections.abc.Callable,
@@ -189,6 +193,12 @@ class Rollable(
 
     def __rpow__(self, other):
         return DicePower(other, self)
+        
+    def __divmod__(self, other):
+        return DiceDivMod(self, other)
+        
+    def __rdivmod__(self, other):
+        return DiceDivMod(other, self)
 
 class RollableSequence(collections.abc.Sequence, Rollable):
     def __init__(self, group=[]):
@@ -204,7 +214,7 @@ class RollableSequence(collections.abc.Sequence, Rollable):
     def __len__(self):
         return len(self._group)
 
-class CollectedRollableSequence(RollableSequence):
+class ScalarRollableSequence(RollableSequence):
     def __init__(self, items, *, scalar):
         self.__scalar = scalar
         super().__init__(items)
@@ -242,18 +252,26 @@ class Die(Rollable, HasConvention):
         return ''.join(['Die(', repr(self.sides), ')'])
 
 class Dice(RollableSequence, HasConvention):
-    def __init__(self, num, rollable, convention=standard_dice):
+    def __new__(cls, num, rollable, convention=standard_dice):
+        num = int(num)
         num = int(num)
         if num < 1:
             raise ValueError('There must be at least one rollable.')
 
         if isinstance(rollable, Dice):
-            num = num * len(rollable)
+            num = num * rollable.num
             rollable = rollable.die
 
-        RollableSequence.__init__(self, (rollable.copy() for i in range(num)))
-        HasConvention.__init__(self, convention)
+        if num == 1:
+            return rollable.copy()
 
+        ret = super().__new__(cls)
+        RollableSequence.__init__(ret, (rollable.copy() for i in range(num)))
+        HasConvention.__init__(ret, convention)
+        return ret
+
+    def __init__(self, num, rollable, convention=standard_dice):
+        pass
 
     def _roll(self):
         return self.convention(item() for item in self._group)
@@ -267,19 +285,28 @@ class Dice(RollableSequence, HasConvention):
             self.__die = self._group[0].copy()
             return self.__die
 
+    @property
+    def num(self):
+        try:
+            return self.__num
+
+        except AttributeError:
+            self.__num = len(self)
+            return self.__num
+
     def copy(self):
-        return Dice(len(self), self.die.copy())
+        return Dice(self.num, self.die.copy())
 
     def __hash__(self):
         return hash((type(self), self.convention) + self._group)
 
     def __str__(self):
-        return ''.join([str(len(self)), str(self.die)])
+        return ''.join([str(self.num), str(self.die)])
 
     def __repr__(self):
-        return ''.join(['Dice(', repr(len(self)), ', ', repr(self.die), ')'])
+        return ''.join(['Dice(', repr(self.num), ', ', repr(self.die), ')'])
 
-class DiceAdder(CollectedRollableSequence):
+class DiceAdder(ScalarRollableSequence, Parenthesize):
     def __new__(cls, *adders, scalar=0):
         mappings = {
             type_: [item for item in adders if type(item) is type_]
@@ -372,9 +399,9 @@ class DiceAdder(CollectedRollableSequence):
                         issubclass(type_, Rollable)
                     )
                     for type_, items in mappings.items()
-                    for item in items
                 )
             ])
+
 
             merged_adders.extend(
                 item
@@ -392,7 +419,7 @@ class DiceAdder(CollectedRollableSequence):
 
         else:
             ret = super().__new__(cls)
-            CollectedRollableSequence.__init__(
+            ScalarRollableSequence.__init__(
                 ret,
                 merged_adders,
                 scalar=scalar
@@ -417,8 +444,8 @@ class DiceAdder(CollectedRollableSequence):
 
     def __str__(self):
         ret = ' + '.join(
-            ''.join(['(', str(item), ')'])
-            if isinstance(item, CollectedRollableSequence)
+            item.paren_str()
+            if isinstance(item, Parenthesize)
             else str(item)
             for item in self._group
         )
@@ -437,7 +464,7 @@ class DiceAdder(CollectedRollableSequence):
         return ''.join(['DiceAdder(', ret, ')'])
 
 
-class DiceMultiplier(CollectedRollableSequence):
+class DiceMultiplier(ScalarRollableSequence, Parenthesize):
     def __new__(cls, *multipliers, scalar=1):
         mappings = {
             type_: [item for item in multipliers if type(item) is type_]
@@ -522,7 +549,7 @@ class DiceMultiplier(CollectedRollableSequence):
         else:
             ret = super().__new__(cls)
             ret.__scalar = scalar
-            CollectedRollableSequence.__init__(
+            ScalarRollableSequence.__init__(
                 ret,
                 merged_multipliers,
                 scalar=scalar
@@ -556,8 +583,8 @@ class DiceMultiplier(CollectedRollableSequence):
             ret = str(self.scalar)
         else:
             ret = ' * '.join(
-                ''.join(['(', str(item), ')'])
-                if isinstance(item, CollectedRollableSequence)
+                item.paren_str()
+                if isinstance(item, Parenthesize)
                 else str(item)
                 for item in self._group
             )
@@ -582,7 +609,7 @@ class DiceMultiplier(CollectedRollableSequence):
         return DiceMultiplier(*self._group, scalar=abs(self.scalar))
 
 
-def DiceFloorDivider(Rollable):
+def DiceFloorDivider(Rollable, Parenthesize):
     def __new__(cls, numerator, denominator):
         if not denominator:
             raise ZeroDivisionError
@@ -668,12 +695,12 @@ def DiceFloorDivider(Rollable):
 
     def __str__(self):
         return ' // '.join([
-            ''.join(['(', str(self.numerator), ')'])
-            if isinstance(self.numerator, CollectedRollableSequence)
+            self.numerator.paren_str()
+            if isinstance(self.numerator, Parenthesize)
             else str(self.numerator),
 
-            ''.join(['(', str(self.denominator), ')'])
-            if isinstance(self.denominator, CollectedRollableSequence)
+            self.denominator.paren_str()
+            if isinstance(self.denominator, Parenthesize)
             else str(self.denominator)
         ])
 
@@ -688,9 +715,7 @@ def DiceFloorDivider(Rollable):
         ])
 
 
-
-
-def DiceTrueDivider(Rollable):
+def DiceTrueDivider(Rollable, Parenthesize):
     def __new__(cls, numerator, denominator):
         if not denominator:
             raise ZeroDivisionError
@@ -776,12 +801,12 @@ def DiceTrueDivider(Rollable):
 
     def __str__(self):
         return ' / '.join([
-            ''.join(['(', str(self.numerator), ')'])
-            if isinstance(self.numerator, CollectedRollableSequence)
+            self.numerator.paren_str()
+            if isinstance(self.numerator, Parenthesize)
             else str(self.numerator),
 
-            ''.join(['(', str(self.denominator), ')'])
-            if isinstance(self.denominator, CollectedRollableSequence)
+            self.denominator.paren_str()
+            if isinstance(self.denominator, Parenthesize)
             else str(self.denominator)
         ])
 
@@ -796,7 +821,117 @@ def DiceTrueDivider(Rollable):
         ])
 
 
-class DiceBitwiseAnd(CollectedRollableSequence):
+def DiceDivMod(Rollable):
+    def __new__(cls, numerator, denominator):
+        if not denominator:
+            raise ZeroDivisionError
+
+        if isinstance(numerator, DiceDivMod):
+            new_numerator = numerator.numerator
+            new_denominator = numerator.denominator
+
+        else:
+            new_numerator = numerator
+            new_denominator = 1
+
+        if isinstance(denominator, DiceDivMod):
+            new_numerator *= denominator.denominator
+            new_denominator *= denominator.numerator
+
+        else:
+            new_denominator *= denominator
+
+        numerator = new_numerator
+        denominator = new_denominator
+
+        if (
+            isinstance(numerator, DiceMultiplier) and
+            isinstance(denominator, DiceMultiplier)
+        ):
+            new_scalar = numerator.scalar / denominator.scalar
+            numerator = DiceMultiplier(*numerator._group, scalar=new_scalar)
+            denominator = DiceMultiplier(*denominator._group)
+
+        elif not isinstance(denominator, Rollable) and denominator == 1:
+            ret = numerator
+
+        elif not isinstance(denominator, Rollable):
+            ret = DiceMultiplier(numerator, scalar=1 / denominator)
+
+        else:
+            ret = super().__new__(cls)
+            ret.__numerator = numerator
+            ret.__denominator = denominator
+
+        return ret
+
+    def __init__(self, numerator, divisor):
+        pass
+
+    @property
+    def numerator(self):
+        return self.__numerator
+
+    @property
+    def denominator(self):
+        return self.__denominator
+
+    def _roll(self):
+        try:
+            numerator = self.numerator()
+        except TypeError:
+            numerator = self.numerator
+
+        try:
+            denominator = self.denominator()
+        except TypeError:
+            denominator = self.denominator
+
+        return divmod(numerator, denominator)
+
+    def copy(self):
+        try:
+            numerator = self.numerator.copy()
+        except AttributeError:
+            numerator = self.numerator
+
+        try:
+            denominator = self.denominator.copy()
+        except AttributeError:
+            denominator = self.denominator
+
+        return DiceDivMod(numerator, denominator)
+
+    def __hash__(self):
+        return hash(type(self), self.numerator, self.denominator)
+
+    def __str__(self):
+        return ''.join([
+            'divmod(',
+            ', '.join([
+                self.numerator.paren_str()
+                if isinstance(self.numerator, Parenthesize)
+                else str(self.numerator),
+    
+                self.denominator.paren_str()
+                if isinstance(self.denominator, Parenthesize)
+                else str(self.denominator)
+            ]),
+            ')',
+        ])
+
+    def __repr__(self):
+        return ''.join([
+            'DiceDivMod(',
+            ', '.join([
+                repr(self.numerator),
+                repr(self.denominator)
+            ]),
+            ')'
+        ])
+
+
+class DiceBitwiseAnd(ScalarRollableSequence, Parenthesize):
     def __new__(cls, *values, scalar=-1):
         mappings = {
             type_: [item for item in values if type(item) is type_]
@@ -894,7 +1029,7 @@ class DiceBitwiseAnd(CollectedRollableSequence):
 
         else:
             ret = super().__new__(cls)
-            CollectedRollableSequence.__init__(
+            ScalarRollableSequence.__init__(
                 ret,
                 merged_values,
                 scalar=scalar
@@ -932,8 +1067,8 @@ class DiceBitwiseAnd(CollectedRollableSequence):
             ret = str(self.scalar)
         else:
             ret = ' & '.join(
-                ''.join(['(', str(item), ')'])
-                if isinstance(item, CollectedRollableSequence)
+                item.paren_str()
+                if isinstance(item, Parenthesize)
                 else str(item)
                 for item in self._group
             )
@@ -953,7 +1088,7 @@ class DiceBitwiseAnd(CollectedRollableSequence):
         return ''.join(['DiceBitwiseAnd(', ret, ')'])
 
 
-class DiceBitwiseOr(CollectedRollableSequence):
+class DiceBitwiseOr(ScalarRollableSequence, Parenthesize):
     def __new__(cls, *values, scalar=0):
         mappings = {
             type_: [item for item in values if type(item) is type_]
@@ -1046,7 +1181,7 @@ class DiceBitwiseOr(CollectedRollableSequence):
 
         else:
             ret = super().__new__(cls)
-            CollectedRollableSequence.__init__(
+            ScalarRollableSequence.__init__(
                 ret,
                 merged_values,
                 scalar=scalar
@@ -1079,8 +1214,8 @@ class DiceBitwiseOr(CollectedRollableSequence):
 
     def __str__(self):
         ret = ' | '.join(
-            ''.join(['(', str(item), ')'])
-            if isinstance(item, CollectedRollableSequence)
+            item.paren_str()
+            if isinstance(item, Parenthesize)
             else str(item)
             for item in self._group
         )
@@ -1097,7 +1232,7 @@ class DiceBitwiseOr(CollectedRollableSequence):
         return ''.join(['DiceBitwiseOr(', ret, ')'])
 
 
-class DiceBitwiseXOr(CollectedRollableSequence):
+class DiceBitwiseXOr(ScalarRollableSequence, Parenthesize):
     def __new__(cls, *values, scalar=0):
         mappings = {
             type_: [item for item in values if type(item) is type_]
@@ -1190,7 +1325,7 @@ class DiceBitwiseXOr(CollectedRollableSequence):
 
         else:
             ret = super().__new__(cls)
-            CollectedRollableSequence.__init__(
+            ScalarRollableSequence.__init__(
                 ret,
                 merged_values,
                 scalar=scalar
@@ -1223,8 +1358,8 @@ class DiceBitwiseXOr(CollectedRollableSequence):
 
     def __str__(self):
         ret = ' ^ '.join(
-            ''.join(['(', str(item), ')'])
-            if isinstance(item, CollectedRollableSequence)
+            item.paren_str()
+            if isinstance(item, Parenthesize)
             else str(item)
             for item in self._group
         )
@@ -1271,8 +1406,8 @@ class DiceBitwiseInvert(Rollable):
     def __str__(self):
         return ''.join([
             '~',
-            ''.join(['(', str(self._element), ')'])
-            if isinstance(self._element, CollectedRollableSequence)
+            self._element.paren_str()
+            if isinstance(self._element, Parenthesize)
             else str(self._element)
         ])
 
@@ -1280,7 +1415,7 @@ class DiceBitwiseInvert(Rollable):
         return ''.join(['DiceBitwiseInvert(', repr(self._element), ')'])
 
 
-class DiceBitwiseShift(Rollable):
+class DiceBitwiseShift(Rollable, Parenthesize):
     def __new__(cls, value, shift):
         self.__value = value
         self.__shift = shift
@@ -1327,12 +1462,12 @@ class DiceBitwiseShift(Rollable):
 
     def __str__(self):
         return (' << ' if int(self._shift) < 0 else ' >> ').join([
-            ''.join(['(', str(self._value), ')'])
-            if isinstance(self._value, CollectedRollableSequence)
+            self._value.paren_str()
+            if isinstance(self._value, Parenthesize)
             else str(self._value),
 
-            ''.join(['(', str(abs(self._shift)), ')'])
-            if isinstance(abs(self._shift), CollectedRollableSequence)
+            self._shift.paren_str()
+            if isinstance(abs(self._shift), Parenthesize)
             else str(abs(self._shift))
         ])
 
@@ -1534,8 +1669,8 @@ class DiceRound(Rollable):
 
     def __str__(self):
         elems = [
-            ''.join(['(', str(self._element), ')'])
-            if isinstance(self._element, CollectedRollableSequence)
+            self._element.paren_str()
+            if isinstance(self._element, Parenthesize)
             else str(self._element)
         ]
         if self._ndigits:
@@ -1553,7 +1688,7 @@ class DiceRound(Rollable):
         ])
 
 
-class DiceModulus(Rollable):
+class DiceModulus(Rollable, Parenthesize):
     def __new__(cls, numerator, denominator):
         if not denominator:
             raise ZeroDivisionError
@@ -1573,6 +1708,22 @@ class DiceModulus(Rollable):
         else:
             new_denominator *= denominator
 
+        if (
+            isinstance(numerator, (Dice, Die)) and
+            not isinstance(denominator, Rollable)
+        ):
+            if isinstance(numerator, Dice):
+                rolls = len(numerator)
+                sides = numerator.die.sides
+            else:
+                rolls = 1
+                sides = numerator.sides
+
+            if not sides % denominator:
+                sides = denominator
+                return Dice(rolls, Die(sides)) - 1
+
+
         ret = super().__new__(cls)
         ret.__numerator = new_numerator
         ret.__denominator = new_denominator
@@ -1586,7 +1737,7 @@ class DiceModulus(Rollable):
         return self.__numerator
 
     @property
-    def _denominator(self):
+    def denominator(self):
         return self.__denominator
 
     def _roll(self):
@@ -1620,12 +1771,12 @@ class DiceModulus(Rollable):
 
     def __str__(self):
         return ' % '.join([
-            ''.join(['(', str(self.numerator), ')'])
-            if isinstance(self.numerator, CollectedRollableSequence)
+            self.numerator.paren_str()
+            if isinstance(self.numerator, Parenthesize)
             else str(self.numerator),
 
-            ''.join(['(', str(self.denominator), ')'])
-            if isinstance(self.denominator, CollectedRollableSequence)
+            self.denominator.paren_str()
+            if isinstance(self.denominator, Parenthesize)
             else str(self.denominator)
         ])
 
@@ -1640,7 +1791,7 @@ class DiceModulus(Rollable):
         ])
 
 
-class DicePower(Rollable):
+class DicePower(Rollable, Parenthesize):
     def __new__(cls, base, exponent):
         if isinstance(exponent, DicePower):
             mult_group = [exponent._base]
@@ -1699,12 +1850,12 @@ class DicePower(Rollable):
 
     def __str__(self):
         return ' ** '.join([
-            ''.join(['(', str(self._base), ')'])
-            if isinstance(self._base, CollectedRollableSequence)
+            self._base.paren_str()
+            if isinstance(self._base, Parenthesize)
             else str(self._base),
 
-            ''.join(['(', str(self._exponent), ')'])
-            if isinstance(self._exponent, CollectedRollableSequence)
+            self._exponent.paren_str()
+            if isinstance(self._exponent, Parenthesize)
             else str(self._exponent)
         ])
 
