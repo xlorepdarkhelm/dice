@@ -21,6 +21,7 @@ import operator
 import random
 import collections.abc
 
+from xdh import config
 
 def standard_die(value):
     return value
@@ -1949,3 +1950,67 @@ class DicePower(Rollable, Parenthesize):
             ]),
             ')'
         ])
+
+class DiceConfig(config.Base):
+    def __init__(self):
+        super().__init__()
+
+        self.register_attr(
+            'd',
+            lambda: Die,
+            Die.__doc__
+        )
+
+        self.register_attr(
+            'd2',
+            lambda: Die(2),
+            '2-sided die'
+        )
+
+        self.register_attr(
+            'd3',
+            lambda: Die(3),
+            '3-sided die'
+        )
+
+        self.register_attr(
+            'd4',
+            lambda: Die(4),
+            '4-sided die'
+        )
+
+        self.register_attr(
+            'd6',
+            lambda: Die(6),
+            '6-sided die'
+        )
+
+        self.register_attr(
+            'd8',
+            lambda: Die(8),
+            '8-sided die'
+        )
+
+        self.register_attr(
+            'd10',
+            lambda: Die(10),
+            '10-sided die'
+        )
+
+        self.register_attr(
+            'd12',
+            lambda: Die(12),
+            '12-sided die'
+        )
+
+        self.register_attr(
+            'd20',
+            lambda: Die(20),
+            '20-sided die'
+        )
+
+        self.register_attr(
+            'd100',
+            lambda: Die(100),
+            '100-sided die (percentile)'
+        )
